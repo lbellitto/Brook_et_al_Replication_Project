@@ -1,0 +1,437 @@
+---
+title: "Replicating the Paper: 'Religious Protection from Populist Violence'"
+format: pdf
+editor: visual
+classoption: 12pt
+header-includes:
+  - \usepackage[top=0.5in, bottom=1in, left=1in, right=1in]{geometry}
+  - \usepackage{times}
+  - \usepackage{setspace}
+  - \doublespacing
+  - \setlength{\parindent}{2em}
+  - \usepackage{indentfirst}  
+---
+
+\begin{center}
+Luna Bellitto
+\end{center}
+
+\newpage
+
+# 1. Introduction
+
+The scope of this paper is to replicate and expand the statistical analysis presented in 'Religious Protection from Populist Violence' by Brooke et al. (2023). In particular, it focuses on replicating Model 4 from the original study and conducting additional analyses to explore potential improvements to the model.
+
+Model 4 of the original paper predicts the number of killings occurred in the Philippines during the war on drugs. The model employs religious, economical, social, and political features gathered from different sources.
+
+The first part of this project is dedicated to the replication of the original model, followed by efforts to develop new models aimed at improving predictive accuracy. In the analysis, a few models will be evaluated, and the best performing one will be selected to to generate scenario analyses focusing on a key independent variable of interest.
+
+## 1.1 Original Analysis
+
+The original study aims to understand the impact of international institutions in protecting from populist violence. In particular, the authors focus on religious institutions, believing that the latter are able to raise awareness on violence, provide protections for the citizens, and mobilize against the institutionalised use of force. The example analyzed in the original study focuses on the role of the Roman Catholic Church in reducing violence in the Philippines during the war on drugs. For this purpose, Brooke et al. (2023) develop models to predict the number of drug-related killings per neighborhood (barangay) in the National Capital Region (NCR). Using causal inference techniques, the study assesses whether the presence of Catholic parishes is associated with a decrease in killings.
+
+The data-set includes data from the census, electoral returns, and transgovernmental organizations. The dependent variable accounts for the number of killings in each barangay, making it count data. Given that the analysis is conducted at the barangay level, the proximity of the different areas of interest raise concerns regarding the observational independence of the predictors. The large number of zeros in the data-set (Figure 1) suggests the presence of overdispersion, which makes a negative binomial the regression model of choice for the original study, and the population variable the exposure factor. For what concerns missing data, the authors dropped them leaving a data-set of 1,696 observations.
+
+```{r echo=FALSE, results='hide', warning = FALSE, message=FALSE}
+library(haven)
+library(MASS)
+library(knitr)
+library(texreg)
+library(sandwich)
+library(lmtest)
+library(caret)
+library(cvTools) 
+library(Metrics) 
+```
+
+```{r echo=FALSE, warning = FALSE, message=FALSE}
+#Dependent variable distribution 
+dat <- read_dta('bbdm_drug_war.dta')
+dat <- na.omit(dat)
+hist(dat$killing_count, 
+     main = " Distribution of the count of killings", 
+     xlab = "Killing Count", 
+     xlim = c(0,30), 
+     breaks = 100)
+dat$level_edu <- 100 - dat$pct_hs_grad
+
+```
+
+Figure 1. Representation of the Killing Count distribution. From the plot, it is possible to see the presence of overdispersion.
+
+# 2 Predictive Models
+
+## 2.1 Replication Model
+
+In the original study, the authors analyse different models to predict the number of killings per barangay, consistently using a negative binomial regression for the inference due to overdispersion in the data; they also pick the logarithm of population as exposure term, accounting for different population sizes. Following this reasoning, the study includes four models that differ from each other for the selection of independent variables. The full model, which is the one replicated in this project, accounts for the presence of Catholic Churches in the barangay, the demographic of the victims, the political sentiment, the presence of police stations, and the presence of Methodist Churches.
+
+More precisely, the demographic variables account for the percentage of the population with high school diplomas and the percentage of the presence of men between 15-24 years old since these two factors are assumed by the authors to belong to the population most at risk for "petty criminality" (Brooke et al., 2023). The political sentiment, instead, mainly refers to the support for Rodrigo Duerte, who strongly implemented the war on drugs in the Philippines. The presence of Methodist Churches performs a placebo test to verify that Catholic Churches themselves are reducing the number of victims thanks to their structure. Consequently, a lack of the difference between the two might signify a not valid assumption.
+
+The following is the replication of the full model from the original study (table 1). Because of the use of different programs (Stata for the original study and R for the replication) and optimizers, the replicated model's estimates slightly vary from those in the original analysis. Table 1 shows the successful replication of the full model from the original paper. Even if the estimates are slightly different because of the use of different programming languages, the regression confirms the results found in the study: the presence of a Catholic parish in a specific barangay is correlated to a lower killing count for that area.
+
+```{r echo=FALSE, results='hide', warning = FALSE, message=FALSE}
+#Dependent variable 
+#the dependent variable is the total count of killings 
+dat$killing_count = dat$police_killing_count + dat$vigilante_killing_count 
+# sum(dat$killing_count)
+# names(dat)
+
+
+model_repli <- glm.nb(killing_count ~ rc_dummy + pct_catholic + pct_hs_grad + 
+                 pct_at_risk_pop + duterte_share + enp_sen + police_dummy + 
+                 pct_nccp + methodist_dummy + offset(log(population)), #log population automatically applied on stata 
+                 data = dat)
+
+coeftest(model_repli, vcov = vcovCL(model_repli, cluster = ~ municipality))
+
+
+
+#taking the exponents of the coefficients because Stata uses exponentiated coefficients while R reports log coefficients 
+model_repli_exp <- exp(coef(model_repli))
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results="asis"}
+#making the table 
+texreg(
+  list(model_repli),
+  override.coef = model_repli_exp,  
+  custom.model.names = "Replicated Model",
+  include.aic = TRUE,
+  include.bic = TRUE,
+  include.loglik = TRUE,
+  stars = c(0.1, 0.05, 0.01),
+  single.row = FALSE,
+  scalebox = 0.6,
+  use.packages = FALSE,
+  float.pos = 'H', 
+  file = "model_output.tex"
+)
+
+# In RMarkdown, insert this inside a LaTeX block
+knitr::asis_output("\\input{model_output.tex}")
+
+```
+
+## 2.2 Additional Models
+
+During the analysis of the original paper, different predictors were analysed. The focus was mainly on political, economic, religious, and social factors. The following two models will test the interaction of economic variables and their influence on the predictions of killing counts.
+
+### 2.3 Political and Economic Model
+
+The first alternative model mantains the same factors of the full model from the original study. More precisely, it consists in a negative binomial taking into account the presence of Catholic Parishes in the Barangay, the the demographic and political predictors, the logarithm of the population as exposure term, and the placebo test. However, it modifies the demographic variables. The original study assumes that the lack of a high school diploma is associated with violence related to the war on drugs. The aim of this model (and the following one) will be to further analyse this dynamic: is economic unstability a good predictor for killing counts? For this purpose, the model removes the percentage of population with a high school diploma and include an interaction term which takes into account the percentage of residents of each barangay that are unemployed or outside the legal market who also do not have a diploma. For this aim, a new variable (Level of Education) taking into account the percentage of people without a diploma was created and then multiplied by the amount of people not registered in the legal market. This tests whether economic marginalization is a significant predictor of killing counts. This interaction allows for assessing whether low-educated, unemployed residents are particularly affected by drug-related killings (Table 2).
+
+### 2.4 Economic Model
+
+The second model further builds on the economic analysis introduced in the previous model. Indeed, it mantains the negative binomial structure and takes into account the same variables as the Political and Economical Model, but it removes the political predictors. More precisely, the model is still considering the presence of Catholic Parishes, the demographic features, population as the exposure term and the placebo test, which are meaningful for the analysis. However, the political variables, such as the political sentiment and the share vote for Duerte, are removed. The new model is focusing on the interaction between low education and unemployment in the legal market with the aim to understand if this specific category of citizens is highly related to the killing counts; in other words, if a resident with these specific demographics is more likely to be killed during the war on drugs. Consequently, the interaction term between the percentage of people without a diploma and a legal employment is used as predictor, but the influence of the political sentiment is removed, stressing the focus on economic factors (Table 2).
+
+```{r echo=FALSE, results='hide',message=FALSE}
+#Fitting a model that considers if the interaction between not getting a diploma and unemployment (economic uncertainty) affects the number of killings
+
+model_polecon <- glm.nb(killing_count ~ rc_dummy + pct_catholic + 
+                            level_edu * pct_informal_unemp + 
+                            pct_at_risk_pop + duterte_share + enp_sen + 
+                            police_dummy + pct_nccp + methodist_dummy + 
+                            offset(log(population)), data = dat)
+
+model_polecon_summary <- summary(model_polecon)
+
+#taking the exponents of the coefficients because Stata uses exponentiated coefficients while R reports log coefficients 
+model_polecon_summary$coefficients[, 1] <- exp(model_polecon_summary$coefficients[, 1])
+print(model_polecon_summary)
+
+
+#Fitting a model that takes into account the interaction between unemployment and high school diploma, but that does not focus a lot on the political environment 
+
+model_econ <- glm.nb(killing_count ~ rc_dummy + pct_catholic + 
+                            level_edu * pct_informal_unemp + 
+                            pct_at_risk_pop + police_dummy + pct_nccp 
+                            + methodist_dummy + offset(log(population)), data = dat)
+
+model_econ_summary <- summary(model_econ)
+
+#taking the exponents of the coefficients because Stata uses exponentiated coefficients while R reports log coefficients 
+model_econ_summary$coefficients[, 1] <- exp(model_econ_summary$coefficients[, 1])
+print(model_econ_summary)
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results="asis"}
+model_repli_exp <- exp(coef(model_repli))
+model_polecon_exp <- exp(coef(model_polecon))
+model_econ_exp <- exp(coef(model_econ))
+
+texreg(
+  list(model_repli, model_polecon, model_econ),
+  override.coef = list(model_repli_exp, model_polecon_exp, model_econ_exp), 
+  custom.model.names = c("Replicated Model", "Economic and Political Model", "Economic Model"), 
+  column.spacing = 1, 
+  outer.rule = "-", 
+  inner.rule = "-", 
+  include.aic = TRUE, include.bic = TRUE, include.loglik = TRUE, 
+  stars = c(0.1, 0.05, 0.01), 
+  scalebox = 0.6,
+  use.packages = FALSE,
+  float.pos = 'H',
+  transform = exp, 
+  file = "model_output_2.tex"
+)
+
+# Insert the LaTeX table into RMarkdown
+knitr::asis_output("\\input{model_output_2.tex}")
+```
+
+Table 2 shows the estimates for the different models. The "Replicated Model" is the same as the original study. The "Economic and Political Model" substitute the percentage of people with a diploma with the percentage of population without one that are also out of the legal employment market. The "Economic Model" removes the political variables from the previous model.
+
+# 3 Model Evaluation
+
+All models in this analysis are negative binomial regressions, but each employes variables to focus on different social aspects. The first model is a replication of the original study and mainly focuses on political, religious, demographic and economic predictors. The "Political and Economic Model" changes the demographic variables by substituting the percentage of population with a diploma with the population that does not have a higher degree and is not legally employed. The "Economic Model" highlights economic factors rather than political ones. Consequently, a successful prediction of killings from the latter model signify economic conditions have an independent effect on the war on drugs even if not accounting for political factors. The significance of this predictor confirms this assumption. In order to compare the performance of the model, in-sample and out-of-sample evaluation is performed.
+
+## 3.1 In Sample Evaluation
+
+The first evaluation performed is the in-sample analysis, focusing on the AIC, BIC results as well as the deviance of the estimations. As it is possible to conclude from table 2, all models present similar standard errors, with only minor differences, meaning none of the model is significanlty predicting more precise estimates than the others. The deviance values further confirm this observation, as they remain marginally lower for the Economic Model, indicating slightly improved estimation accuracy; however, the differences among the models is barely present. Similarly results concern the AIC and BIC. Both of the values are lower for the "Economic Model" suggesting that it more accurately estimates values, based on in-sample evaluation. Between the two other models, the Political and Economic Model outperforms the Replication Model based on AIC, but the BIC results suggest the opposite. Overall, the three models perform nearly equivalently in terms of in-sample evaluation. Figure 2 helps in the visualization of the in-sample model performances. In the visualization, the diagonal line represents perfect predictions of killing counts while the dots represent real values plotted against predicted ones for each model. The models have margin for improvement, but they all perform quite the same; in other words, there is not model that consistently place more points along the diagonal line. Since no model clearly outperforms the others, selecting the simplest one is the best option as it would require fewer predictions, reducing complexity and minimizing the risk of overfitting. However, out-of-sample evaluation is required to determine if a model is better performing on test data, allowing for better generalization.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results="asis"}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(MASS)  # For glm.nb
+
+# Add predictions from all models
+dat <- dat %>%
+  mutate(pred_repli = predict(model_repli, newdata = ., type = "response"),
+         pred_polecon = predict(model_polecon, newdata = ., type = "response"),
+         pred_econ = predict(model_econ, newdata = ., type = "response"))
+
+# Reshape data to long format for easier ggplot handling
+dat_long <- dat %>%
+  pivot_longer(cols = starts_with("pred_"), names_to = "model", values_to = "predicted")
+
+# Rename model labels for readability
+dat_long$model <- recode(dat_long$model, 
+                         "pred_repli" = "Replication Model",
+                         "pred_polecon" = "Political Economy Model",
+                         "pred_econ" = "Economic Model")
+
+min_val <- min(c(dat_long$predicted, dat$killing_count), na.rm = TRUE)
+max_val <- max(c(dat_long$predicted, dat$killing_count), na.rm = TRUE)
+
+
+# Plot
+ggplot(dat_long, aes(x = predicted, y = killing_count, color = model)) +
+  geom_point(alpha = 0.6) +  # Scatter plot for all models
+  geom_line(data = data.frame(x = c(min_val, max_val), y = c(min_val, max_val)), 
+            aes(x = x, y = y), linetype = "dotted", color = "black") +  
+  labs(x = expression("Predicted values: " * hat(Y)), 
+       y = expression("Real values: " * Y), 
+       title = "Comparison of Model Predictions") +
+  theme_minimal() +
+  scale_color_manual(values = c("pink", "yellow", "purple")) 
+```
+
+Figure 2. The diagonal represents ideal perfect predictions while the different dots are the real values plotted against the predicted ones. The figure allows to understand how each prediction of the model is far from the real value.
+
+## 3.2 Out-of-Sample Evaluation
+
+Model evaluation involves comparing the performance of each model on testing data. For this purpose, a 10-fold cross-validation is used to evaluate the models on an out-of-sample basis. The performance is evaluated by comparing the Mean Squared Error and the R-squared, presented in Table 3.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results="asis"}
+
+# Set number of folds
+k <- 10
+set.seed(123)
+
+# Create k folds
+folds <- cvFolds(nrow(dat), K = k)
+
+# Function to perform k-fold CV and compute metrics
+cv_nb_model <- function(formula, data, folds) {
+  mse_values <- numeric(k)
+  rmse_values <- numeric(k)
+  mae_values <- numeric(k)
+  r2_values <- numeric(k)
+  pearson_corr <- numeric(k)
+  mape_values <- numeric(k)
+  
+  for (i in 1:k) {
+    # Split data into train and test sets
+    train_idx <- which(folds$which != i)
+    test_idx <- which(folds$which == i)
+    
+    train_data <- data[train_idx, ]
+    test_data <- data[test_idx, ]
+    
+    # Fit negative binomial model
+    model <- glm.nb(formula, data = train_data)
+    
+    # Predict on test set
+    preds <- predict(model, newdata = test_data, type = "response")
+    
+    # Compute Metrics
+    mse_values[i] <- mean((test_data$killing_count - preds)^2)  # MSE
+    rmse_values[i] <- sqrt(mse_values[i])                      # RMSE
+    mae_values[i] <- mean(abs(test_data$killing_count - preds)) # MAE
+    r2_values[i] <- cor(test_data$killing_count, preds)^2      # R-squared
+    pearson_corr[i] <- cor(test_data$killing_count, preds)     # Pearson Correlation
+    mape_values[i] <- mean(abs((test_data$killing_count - preds) / test_data$killing_count)) * 100  # MAPE
+  }
+  
+  # Return aggregated metrics
+  return(c(
+    mean(mse_values), mean(rmse_values), mean(mae_values),
+    mean(r2_values), mean(pearson_corr), mean(mape_values)
+  ))
+}
+
+# Define formulas for models
+formula_replica <- killing_count ~ rc_dummy + pct_catholic + pct_hs_grad + 
+                pct_at_risk_pop + duterte_share + enp_sen + police_dummy + 
+                pct_nccp + methodist_dummy + offset(log(population))
+
+formula_polecon <- killing_count ~ rc_dummy + pct_catholic + 
+                   level_edu * pct_informal_unemp + pct_at_risk_pop + 
+                   duterte_share + enp_sen + police_dummy + pct_nccp + 
+                   methodist_dummy + offset(log(population))
+
+formula_econ <- killing_count ~ rc_dummy + pct_catholic + 
+                level_edu * pct_informal_unemp + pct_at_risk_pop + 
+                police_dummy + pct_nccp + methodist_dummy + offset(log(population))
+
+# Run cross-validation for each model
+results_replica <- cv_nb_model(formula_replica, dat, folds)
+results_polecon <- cv_nb_model(formula_polecon, dat, folds)
+results_econ <- cv_nb_model(formula_econ, dat, folds)
+
+# Combine results into a dataframe
+cv_results <- data.frame(
+  Model = c("Replication Model", "Political Economic Model", "Economic Model"),
+  MSE = c(results_replica[1], results_polecon[1], results_econ[1]),
+  RMSE = c(results_replica[2], results_polecon[2], results_econ[2]),
+  MAE = c(results_replica[3], results_polecon[3], results_econ[3]),
+  R_squared = c(results_replica[4], results_polecon[4], results_econ[4]),
+  Pearson_Correlation = c(results_replica[5], results_polecon[5], results_econ[5])
+)
+
+# Print results
+
+kable(cv_results, digits = 3, caption = "Cross-Validation Results")
+
+```
+
+Table 3. Out-of-sample results from a 10-fold cross-validation evaluating the three models under analysis. The Economic Model shows slightly lower residuals (MSE, RMSE), indicating better predictive accuracy. However, the Replication Model demonstrates the highest R squared, suggesting it better explains the most variance in the data.
+
+Table 3 displays the results of the out-of-sample evaluation. The differences in residuals across models are minimal. By checking the Mean Squared Error, the Replication Model exhibits the largest residual, followed by the Political Economic Model, and the Economic Model having the lowest. Thus, the latter achieves the smallest residuals, suggesting slightly better predictive accuracy. However, these differences are so minor that they are not significant in determining the best-performing model (Figure 3).
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results="asis"}
+#plotting the MSE 
+colors <- c("purple", "yellow", "pink")
+
+barplot(cv_results$MSE, names.arg = cv_results$Model, xlab = "Models",
+        col = colors, 
+        ylab = "MSE", main = "MSE of Models", 
+        ylim = c(0, 10), 
+        yaxt = "n")
+
+axis(2, at = seq(0, 10, by = 1))
+```
+
+Figure 3. Representation of the Mean Squared Error for each model based on 10-fold cross-validation. While the Economic Model has the lowest MSE, the differences are minimal and negligible.
+
+Another key parameter for assessing model performance is the R squared. Having the role of indicating the proportion of variance in the dependent variable explained by the model, the highest R squared suggests better explanatory power. As shown in Table 3, the Replication Model is the most successful in this aim, followed by the Economic Model, and the Political and Economic Model in the end. However, the differences among the three models are minimal, meaning R-squared alone cannot be sufficient to determine the best performing model. Figure 4 provides a visual comparison of this parameter.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results="asis"}
+
+#plotting the R squared 
+
+barplot(cv_results$R_squared, names.arg = cv_results$Model, xlab = "Models Analysed",
+        col = colors,
+        ylab = "R-squared", main = "R Squared of Models",
+        ylim = c(0, 1),
+        yaxt = "n")
+
+axis(2, at = seq(0, 1, by = 0.05))
+
+```
+
+Figure 4. Visualization of R-squared from a 10-fold cross-validation. The Replication Model performs best, having the largest R-square, but the differences among the models remain minimal.
+
+## 3.3 Selection of Best Model
+
+The process of selecting the best model requires model comparison. Based on the in-sample evaluation, the Economic Model performs best by exhibiting the lowest deviance, AIc and BIC. The Economic and Political is the second best performing by checking the deviance and AIC parameter while the Replication Model is the second best performing based on the BIC. Neverthless, the differences betwween these parameters are minimal, meaning that they are not reliable indicators for selecting the best model. Moreover, a well-performing model should also accurately predict unseen data, making out-of-sample evaluation essential. In this study, 10-fold cross-validation is employed to assess model performance. The Economic Model is the best performing becuase it produces the lowest residuals and explains more variance than the other models. Even in this case, however, the differences between these parameters remain small, limiting their usefulness as decisive criteria. Since no model clearly outperforms the others, another factors to consider is the model simplicity. Indeed, a simpler model is preferable as it reduces the risk of overfitting and noise injection. In this instance, the Economic Model is the best selection over the Political and Economic Model as the first is a neasted model, meaning it is a subset of the other. Although it includes an interaction term, it contains fewer variables than the Replication Model. As a result, the smaller number of predictors combined with the slightly superior in-sample and out-of-sample performance makes the Economic Model the best choice.
+
+# 4. Does the Presence of Catholic Parishes Affect the Killings Count?
+
+The original analysis aimed to examine the influence of Catholic parishes on killing counts. This study follows the same objective while emphasizing the economic well-being and level of education of individuals. Thus, it investigates how the presence of Catholic parishes impacts killing counts within a given area. For this aim, the following analysis specifically examines the independent variable representing the presence of Catholic parishes and its influence on the dependent variable, killing count. As a first step, two scenarios are created, keeping all other variables constant while varying the presence or absence of Catholic parishes. In these scenarios, the mean is used for all other continuous predictors, while the median is applied to categorical variables, ensuring a balanced representation of the data. The only variable that changes between the two scenarios is the presence of Catholic parishes.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results="asis"}
+library(ggplot2)
+library(dplyr)
+
+# Define predictor values for the two scenarios
+X.presence <- data.frame(
+  rc_dummy = 1, 
+  pct_catholic = mean(dat$pct_catholic, na.rm = TRUE), 
+  level_edu = mean(dat$level_edu, na.rm = TRUE), 
+  pct_informal_unemp = mean(dat$pct_informal_unemp, na.rm = TRUE), 
+  pct_at_risk_pop = mean(dat$pct_at_risk_pop, na.rm = TRUE), 
+  police_dummy = median(dat$police_dummy, na.rm = TRUE), 
+  pct_nccp = mean(dat$pct_nccp, na.rm = TRUE), 
+  methodist_dummy = median(dat$methodist_dummy, na.rm = TRUE), 
+  interaction = mean(dat$level_edu, na.rm = TRUE) * mean(dat$pct_informal_unemp, na.rm = TRUE),
+  population = mean(dat$population, na.rm = TRUE) # Offset variable
+)
+
+X.absence <- data.frame(
+  rc_dummy = 0, 
+  pct_catholic = mean(dat$pct_catholic, na.rm = TRUE), 
+  level_edu = mean(dat$level_edu, na.rm = TRUE), 
+  pct_informal_unemp = mean(dat$pct_informal_unemp, na.rm = TRUE), 
+  pct_at_risk_pop = mean(dat$pct_at_risk_pop, na.rm = TRUE), 
+  police_dummy = median(dat$police_dummy, na.rm = TRUE), 
+  pct_nccp = mean(dat$pct_nccp, na.rm = TRUE), 
+  methodist_dummy = median(dat$methodist_dummy, na.rm = TRUE), 
+  interaction = mean(dat$level_edu, na.rm = TRUE) * mean(dat$pct_informal_unemp, na.rm = TRUE),
+  population = mean(dat$population, na.rm = TRUE) # Offset variable
+)
+
+# Predict killing counts for both scenarios using the Negative Binomial model
+X.presence$predicted <- predict(model_econ, newdata = X.presence, type = "response")
+X.absence$predicted <- predict(model_econ, newdata = X.absence, type = "response")
+
+# Combine data for visualization
+plot_data <- bind_rows(
+  X.presence %>% mutate(rc_dummy = "Parish Present"),
+  X.absence %>% mutate(rc_dummy = "Parish Absent")
+) %>%
+  select(rc_dummy, predicted)
+
+# Compute Standard Error for Error Bars
+se <- sd(dat$killing_count, na.rm = TRUE) / sqrt(nrow(dat))  # Approximate SE
+
+# Create visualization
+ggplot(plot_data, aes(x = rc_dummy, y = predicted)) +
+  geom_point(color = "blue", size = 3) +  # Points for predicted values
+  geom_errorbar(aes(ymin = predicted - 1.96 * se, ymax = predicted + 1.96 * se), 
+                width = 0.2, color = "red") +  # Confidence intervals
+  labs(title = "Effect of Parish Churches on Predicted Killings",
+       x = "Presence of Parish Churches",
+       y = "Predicted Killing Counts") +
+  theme_minimal()
+
+```
+
+Figure 5. Representation of killings count in the absence (left) and presence (right) of Catholic Parishes, including the uncertainty interval.
+
+Figure 5 illustrates this analysis, with the x-axis representing the presence or absence of Catholic parishes and the y-axis showing the killing count. The results indicate that, on average, the presence of Catholic parishes is associated with fewer killings (around 1.1), while their absence corresponds to an increase in the number of victims (approximately 1.5). Even when accounting for the uncertainty interval, the overall conclusion is the same. Consequently, the graph confirms the assumption that the presence of Catholic Parishes is linked to a lower number of killings, holding all the other varaibles constant.
+
+# 5. Conclusion
+
+The replication and extension of Brooke et al. (2023) confirm that the presence of Catholic parishes is associated with lower killing counts during the Philippine war on drugs, consistent with the original study’s findings. Among the models analysed, the Economic Model slightly performs better both in-sample and out-of sample, meaning that the economic and education level are key factors in the violence related to war on drugs. It is also important to notitce the performance difference among the models is minimal, so no model significanlty outperforms others, making the simplest model the best choice. The original study assumed a relation between Catholic Parishes and a lower number of killings, reltion analysed also in this paper. However, the mainly observational nature of the study does not allow to confirm causation between the two. For this reason, further studies might be needed, by, for instance, assessing the division of barangay and implementing further models. In the end, this study and the original paper provide valuable insights, but further analysis are needed to confirm causality between Catholic Parishes and killing count.
+
+\newpage
+
+# References
+
+BROOKE ET AL. (2023), "Religious Protection from Populist Violence",
+
+https://www.jstor.org/stable/10.2307/48737499. 
